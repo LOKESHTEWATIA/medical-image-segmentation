@@ -1,0 +1,138 @@
+version: '3.8'
+
+services:
+  # Development database
+  postgres:
+    image: postgres:16-alpine
+    container_name: medseg-postgres-dev
+    environment:
+      POSTGRES_DB: medseg_dev
+      POSTGRES_USER: medseg
+      POSTGRES_PASSWORD: devpassword
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ../scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medseg -d medseg_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - medseg-dev-network
+
+  # Development Redis
+  redis:
+    image: redis:7-alpine
+    container_name: medseg-redis-dev
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_dev_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - medseg-dev-network
+
+  # Backend Development
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: medseg-backend-dev
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=postgresql+asyncpg://medseg:devpassword@postgres:5432/medseg_dev
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - SECRET_KEY=dev-secret-key-change-in-production-min-32-chars
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:8000
+      - UPLOAD_DIR=/app/uploads
+      - MODEL_DIR=/app/models
+      - DEVICE=cpu
+      - LOG_LEVEL=DEBUG
+      - DEBUG=true
+    volumes:
+      - ../backend:/app
+      - upload_dev_data:/app/uploads
+      - model_dev_data:/app/models
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - medseg-dev-network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Celery Worker Development
+  celery-worker:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: medseg-celery-worker-dev
+    command: celery -A app.tasks.inference worker --loglevel=debug --concurrency=1 --pool=solo -Q inference
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=postgresql+asyncpg://medseg:devpassword@postgres:5432/medseg_dev
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - SECRET_KEY=dev-secret-key-change-in-production-min-32-chars
+      - UPLOAD_DIR=/app/uploads
+      - MODEL_DIR=/app/models
+      - DEVICE=cpu
+      - LOG_LEVEL=DEBUG
+    volumes:
+      - ../backend:/app
+      - upload_dev_data:/app/uploads
+      - model_dev_data:/app/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    networks:
+      - medseg-dev-network
+
+  # Frontend Development
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: medseg-frontend-dev
+    environment:
+      - VITE_API_URL=http://localhost:8000/api/v1
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - medseg-dev-network
+    command: npm run dev -- --host
+
+volumes:
+  postgres_dev_data:
+  redis_dev_data:
+  upload_dev_data:
+  model_dev_data:
+
+networks:
+  medseg-dev-network:
+    driver: bridge

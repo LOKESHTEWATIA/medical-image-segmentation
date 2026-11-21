@@ -1,0 +1,51 @@
+# MedSeg Model Training Configuration
+# Copy this file and modify for your dataset
+
+# Model Configuration
+model:
+  type: "unet"  # Options: unet, attention_unet
+  in_channels: 4  # Number of input channels (e.g., 4 for BraTS multi-modal)
+  out_channels: 4  # Number of output classes (background + 3 tumor classes)
+  features: [32, 64, 128, 256, 512]  # Feature channels at each level
+  bilinear: true  # Use bilinear upsampling vs transposed conv
+  use_batchnorm: true
+  dropout: 0.1
+
+# Data Configuration
+data:
+  data_dir: "/data/brats2021"  # Path to dataset root
+  # Expected structure:
+  # data_dir/
+  #   images/
+  #     case_001.nii.gz
+  #     case_002.nii.gz
+  #   labels/
+  #     case_001.nii.gz
+  #     case_002.nii.gz
+
+# Training Configuration
+training:
+  batch_size: 2  # Adjust based on GPU memory
+  learning_rate: 1e-3
+  weight_decay: 1e-4
+  epochs: 200
+  num_workers: 4
+  ce_weight: 0.5  # CrossEntropy loss weight
+  dice_weight: 0.5  # Dice loss weight
+  scheduler_T0: 10  # Cosine annealing restart period
+  save_every: 10  # Save checkpoint every N epochs
+  log_dir: "./logs"
+  checkpoint_dir: "./checkpoints"
+
+# Augmentation (optional)
+augmentation:
+  random_flip: true
+  random_rotate: true
+  random_scale: true
+  elastic_deform: false
+  gaussian_noise: 0.01
+
+# Validation
+validation:
+  split_ratio: 0.1  # 10% for validation
+  metrics: ["dice", "iou", "hausdorff"]
